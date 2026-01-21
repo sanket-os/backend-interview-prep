@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Same frontend as before.
+      Still sends frequent requests.
+      Difference:
+      The backend will NOT block anymore.
+    -->
+    <title>Fetch Request on Button Click</title>
+  </head>
+
+  <body>
+    <h1>Fetch Request on Button Click</h1>
+
+    <!--
+      One button.
+      Many requests.
+      Node.js will now handle this gracefully.
+    -->
+    <button id="fetchButton">Fetch Data</button>
+
+    <script>
+      console.log("Fetching Data....");
+
+      // Client-side request counter (debugging only)
+      let requestNumber = 0;
+
+      /*
+        fetchData()
+        ----------
+        Sends a request to /fib with:
+        - number = 40 (CPU-heavy but manageable)
+        - requestNumber = for tracking order
+      */
+      function fetchData() {
+        fetch(
+          "http://localhost:3000/fib?number=" +
+            40 +
+            "&requestNumber=" +
+            requestNumber++
+        )
+          .then((response) => response.json())
+          .then((data) => console.log("response: ", data))
+          .catch((err) => console.error(err));
+      }
+
+      /*
+        Button click handler
+        --------------------
+        - Sends requests every 100ms
+        - Stops after 5 seconds
+        - ~50 requests total
+      */
+      document
+        .getElementById("fetchButton")
+        .addEventListener("click", function () {
+          const countId = setInterval(fetchData, 100);
+
+          setTimeout(() => {
+            clearInterval(countId);
+          }, 5000);
+        });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      This page is deceptively simple.
+      One button.
+      But behind that button…
+      lies a distributed systems problem.
+    -->
+    <title>Fetch Request on Button Click</title>
+  </head>
+
+  <body>
+    <h1>Fetch Request on Button Click</h1>
+
+    <!--
+      This innocent-looking button
+      will soon be responsible for flooding the server
+      with CPU-intensive requests.
+    -->
+    <button id="fetchButton">Fetch Data</button>
+
+    <script>
+      // Just a friendly console log so we know the script loaded
+      console.log("Fetching Data....");
+
+      // Used to uniquely identify each request
+      // Helps us see request ordering and delays on the server
+      let requestNumber = 0;
+
+      /*
+        fetchData()
+        ----------
+        This function sends ONE HTTP request to the server.
+
+        Important:
+        - fetch() is asynchronous
+        - Browser remains non-blocking
+        - But the SERVER may not be so lucky
+      */
+      function fetchData() {
+        fetch(
+          // We intentionally request fib(40)
+          // This is NOT a random number.
+          // fib(40) is slow enough to block Node.js.
+          "http://localhost:3000/fib?number=" +
+            40 +
+            "&requestNumber=" +
+            requestNumber++
+        )
+          // Convert HTTP response → JSON
+          .then((response) => response.json())
+
+          // Log the response when it finally arrives
+          // Note: responses will start coming late under load
+          .then((data) => console.log("response: ", data))
+
+          // Network or parsing errors end up here
+          .catch((err) => console.error(err));
+      }
+
+      /*
+        Button click handler
+        --------------------
+        When clicked:
+        - We start sending requests every 100ms
+        - For 5 seconds
+        - Roughly 50 requests total
+
+        This is intentional.
+        This is how we simulate load.
+      */
+      document
+        .getElementById("fetchButton")
+        .addEventListener("click", function () {
+
+          // Fire fetchData() every 100 milliseconds
+          // This means new requests may arrive
+          // even while old ones are still being processed
+          const countId = setInterval(fetchData, 100);
+
+          // Stop after 5 seconds
+          // Otherwise we would DDoS ourselves forever
+          setTimeout(() => {
+            clearInterval(countId);
+          }, 5000);
+        });
+    </script>
+  </body>
+</html>

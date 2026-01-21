@@ -1,103 +1,122 @@
 const express = require("express");
-const app = express();
 const path = require("path");
 const { Worker } = require("worker_threads");
 
-/*
-|--------------------------------------------------------------------------
-| Serve static frontend
-|--------------------------------------------------------------------------
-*/
+const app = express();
 app.use(express.static("public"));
 
 /*
 |--------------------------------------------------------------------------
-| runWorker(number)
+| Worker Pool Configuration
 |--------------------------------------------------------------------------
-| Creates a worker thread and returns a Promise.
-|
-| Why Promise?
-| - Worker runs asynchronously
-| - Result arrives later
-| - async/await keeps code readable
+| NEVER create unlimited workers.
+| Use a fixed pool based on CPU cores.
 |--------------------------------------------------------------------------
 */
-function runWorker(number) {
+const MAX_WORKERS = 4; // usually = CPU cores
+const workerQueue = [];
+let activeWorkers = 0;
+
+/*
+|--------------------------------------------------------------------------
+| runWorkerTask(number)
+|--------------------------------------------------------------------------
+| - Queues requests
+| - Executes them when a worker is free
+| - Prevents CPU overload
+|--------------------------------------------------------------------------
+*/
+function runWorkerTask(number) {
   return new Promise((resolve, reject) => {
-
-    /*
-      Create a new worker thread.
-      - Loads fiboFork.js
-      - Passes number via workerData
-    */
-    const worker = new Worker(
-      path.join(__dirname, "fiboFork.js"),
-      {
-        workerData: { number },
-      }
-    );
-
-    console.log(
-      `Forked new worker thread with threadId: ${worker.threadId}`
-    );
-
-    // Receive result from worker
-    worker.on("message", resolve);
-
-    // Handle worker-level errors
-    worker.on("error", reject);
-
-    // If worker exits unexpectedly
-    worker.on("exit", (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(`Worker stopped with exit code ${code}`)
-        );
-      }
-    });
+    workerQueue.push({ number, resolve, reject });
+    processQueue();
   });
 }
 
 /*
 |--------------------------------------------------------------------------
-| /fib Route Handler
+| processQueue()
+|--------------------------------------------------------------------------
+| - Starts workers if slots are available
+|--------------------------------------------------------------------------
+*/
+function processQueue() {
+  if (activeWorkers >= MAX_WORKERS) return;
+  if (workerQueue.length === 0) return;
+
+  const { number, resolve, reject } = workerQueue.shift();
+  activeWorkers++;
+
+  const worker = new Worker(
+    path.join(__dirname, "fiboWorker.js"),
+    { workerData: { number } }
+  );
+
+  console.log(
+    `🧵 Spawned worker ${worker.threadId} | Active workers: ${activeWorkers}`
+  );
+
+  worker.on("message", (result) => {
+    resolve(result);
+  });
+
+  worker.on("error", (err) => {
+    reject(err);
+  });
+
+  worker.on("exit", (code) => {
+    activeWorkers--;
+
+    console.log(
+      `🧹 Worker exited | Active workers now: ${activeWorkers}`
+    );
+
+    if (code !== 0) {
+      reject(new Error(`Worker exited with code ${code}`));
+    }
+
+    // Start next queued task
+    processQueue();
+  });
+}
+
+/*
+|--------------------------------------------------------------------------
+| /fib Route
 |--------------------------------------------------------------------------
 | - Does NOT compute Fibonacci
-| - Delegates to worker thread
+| - Delegates to worker pool
 | - Event loop stays responsive
 |--------------------------------------------------------------------------
 */
 app.get("/fib", async (req, res) => {
   const { number, requestNumber } = req.query;
 
-  console.log("handler fn ran for req ", requestNumber);
+  console.log(`➡️ Request ${requestNumber} received`);
 
-  // Input validation
   if (!number || isNaN(number) || number <= 0) {
-    return res
-      .status(400)
-      .json({ error: "Please provide a valid positive number." });
+    return res.status(400).json({
+      error: "Please provide a valid positive number",
+    });
   }
 
   try {
-    /*
-      Await worker result.
-      While waiting:
-      - Event loop can handle other requests
-      - No blocking
-    */
-    const result = await runWorker(Number(number));
+    const result = await runWorkerTask(Number(number));
 
-    console.log("Sending response for req", requestNumber);
+    console.log(`🚀 Responding to request ${requestNumber}`);
 
-    res.status(200).json({
+    res.json({
       status: "success",
       message: result,
       requestNumber,
     });
-  } catch (error) {
+  } catch (err) {
+    console.error(
+      `💥 Error for request ${requestNumber}:`,
+      err.message
+    );
     res.status(500).json({
-      error: "Error Calculating Fibonacci",
+      error: "Error calculating Fibonacci",
     });
   }
 });
@@ -106,11 +125,24 @@ app.get("/fib", async (req, res) => {
 |--------------------------------------------------------------------------
 | Start Server
 |--------------------------------------------------------------------------
-| Single process
-| Multiple threads
-| Event loop stays happy
-|--------------------------------------------------------------------------
 */
 app.listen(3000, () => {
-  console.log("server is running on port 3000");
+  console.log("🟢 Server running on port 3000");
 });
+
+
+
+// FINAL ARCHITECTURE (Mental Picture)
+// Browser
+//    |
+//    | many requests
+//    v
+// Express Server (Event Loop stays free)
+//    |
+//    | queue task
+//    v
+// Worker Pool (4 threads)
+//    |
+//    | Fibonacci computation
+//    v
+// Result → Response
